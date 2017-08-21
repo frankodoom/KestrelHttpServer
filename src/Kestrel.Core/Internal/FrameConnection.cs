@@ -170,10 +170,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
                     {
                         _context.ServiceContext.ConnectionManager.UpgradedConnectionCount.ReleaseOne();
                     }
-                    else
-                    {
-                        _context.ServiceContext.ConnectionManager.NormalConnectionCount.ReleaseOne();
-                    }
 
                     Log.ConnectionStop(ConnectionId);
                     KestrelEventSource.Log.ConnectionStop(this);
