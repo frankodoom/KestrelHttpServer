@@ -22,7 +22,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             _application = application;
         }
 
-        public override async Task ProcessRequestAsync()
+        public override async Task ProcessRequestsAsync()
         {
             try
             {

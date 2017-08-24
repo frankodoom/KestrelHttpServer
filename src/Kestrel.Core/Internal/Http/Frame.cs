@@ -15,7 +15,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.Protocols;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
@@ -47,7 +46,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         private readonly object _onStartingSync = new Object();
         private readonly object _onCompletedSync = new Object();
 
-        private Streams _frameStreams;
+        private Streams _streams;
 
         protected Stack<KeyValuePair<Func<object, Task>, object>> _onStarting;
         protected Stack<KeyValuePair<Func<object, Task>, object>> _onCompleted;
@@ -78,16 +77,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         protected long _responseBytesWritten;
 
-        private readonly FrameContext _frameContext;
+        private readonly FrameContext _context;
         private readonly IHttpParser<FrameAdapter> _parser;
 
         private HttpRequestTarget _requestTargetForm = HttpRequestTarget.Unknown;
         private Uri _absoluteRequestTarget;
         private string _scheme = null;
 
-        public Frame(FrameContext frameContext)
+        public Frame(FrameContext context)
         {
-            _frameContext = frameContext;
+            _context = context;
 
             ServerOptions = ServiceContext.ServerOptions;
 
@@ -97,26 +96,28 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             _keepAliveTicks = ServerOptions.Limits.KeepAliveTimeout.Ticks;
             _requestHeadersTimeoutTicks = ServerOptions.Limits.RequestHeadersTimeout.Ticks;
 
-            Output = new OutputProducer(frameContext.Application.Input, frameContext.Transport.Output, frameContext.ConnectionId, frameContext.ServiceContext.Log, TimeoutControl);
+            Output = new OutputProducer(context.Application.Input, context.Transport.Output, context.ConnectionId, context.ServiceContext.Log, TimeoutControl);
             RequestBodyPipe = CreateRequestBodyPipe();
         }
 
+        public IFrameControl FrameControl { get; set; }
+
         public IPipe RequestBodyPipe { get; }
 
-        public ServiceContext ServiceContext => _frameContext.ServiceContext;
-        private IPEndPoint LocalEndPoint => _frameContext.LocalEndPoint;
-        private IPEndPoint RemoteEndPoint => _frameContext.RemoteEndPoint;
+        public ServiceContext ServiceContext => _context.ServiceContext;
+        private IPEndPoint LocalEndPoint => _context.LocalEndPoint;
+        private IPEndPoint RemoteEndPoint => _context.RemoteEndPoint;
 
         public IFeatureCollection ConnectionFeatures { get; set; }
-        public IPipeReader Input => _frameContext.Transport.Input;
+        public IPipeReader Input => _context.Transport.Input;
         public OutputProducer Output { get; }
-        public ITimeoutControl TimeoutControl => _frameContext.TimeoutControl;
+        public ITimeoutControl TimeoutControl => _context.TimeoutControl;
 
         protected IKestrelTrace Log => ServiceContext.Log;
         private DateHeaderValueManager DateHeaderValueManager => ServiceContext.DateHeaderValueManager;
         // Hold direct reference to ServerOptions since this is used very often in the request processing path
         private KestrelServerOptions ServerOptions { get; }
-        protected string ConnectionId => _frameContext.ConnectionId;
+        protected string ConnectionId => _context.ConnectionId;
 
         public string ConnectionIdFeature { get; set; }
         public bool HasStartedConsumingRequestBody { get; set; }
@@ -303,19 +304,19 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         public MinDataRate MinResponseDataRate { get; set; }
 
-        public void InitializeStreams(MessageBody messageBody)
+        public void InitializeStreams(IMessageBody messageBody)
         {
-            if (_frameStreams == null)
+            if (_streams == null)
             {
-                _frameStreams = new Streams(bodyControl: this, frameControl: this);
+                _streams = new Streams(bodyControl: this, frameControl: this);
             }
 
-            (RequestBody, ResponseBody) = _frameStreams.Start(messageBody);
+            (RequestBody, ResponseBody) = _streams.Start(messageBody);
         }
 
-        public void PauseStreams() => _frameStreams.Pause();
+        public void PauseStreams() => _streams.Pause();
 
-        public void StopStreams() => _frameStreams.Stop();
+        public void StopStreams() => _streams.Stop();
 
         // For testing
         internal void ResetState()
@@ -417,7 +418,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             {
                 _requestProcessingStopping = true;
 
-                _frameStreams?.Abort(error);
+                _streams?.Abort(error);
 
                 Output.Abort(error);
 
@@ -1448,7 +1449,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         }
 
         private IPipe CreateRequestBodyPipe()
-            => _frameContext.PipeFactory.Create(new PipeOptions
+            => _context.PipeFactory.Create(new PipeOptions
             {
                 ReaderScheduler = ServiceContext.ThreadPool,
                 WriterScheduler = InlineScheduler.Default,
