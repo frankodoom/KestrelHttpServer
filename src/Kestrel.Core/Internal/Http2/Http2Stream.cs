@@ -52,6 +52,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
         protected Exception _applicationException;
         private BadHttpRequestException _requestRejectedException;
 
+        protected Http.HttpVersion _httpVersion;
+
         private string _requestId;
 
         protected long _responseBytesWritten;
@@ -128,7 +130,70 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
         public string QueryString { get; set; }
         public string RawTarget { get; set; }
 
-        public string HttpVersion => "HTTP/2";
+        public string HttpVersion
+        {
+            get
+            {
+                if (_httpVersion == Http.HttpVersion.Http11)
+                {
+                    return "HTTP/1.1";
+                }
+                if (_httpVersion == Http.HttpVersion.Http10)
+                {
+                    return "HTTP/1.0";
+                }
+                if (_httpVersion == Http.HttpVersion.Http2)
+                {
+                    return "HTTP/2";
+                }
+
+                return string.Empty;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set
+            {
+                // GetKnownVersion returns versions which ReferenceEquals interned string
+                // As most common path, check for this only in fast-path and inline
+                if (ReferenceEquals(value, "HTTP/1.1"))
+                {
+                    _httpVersion = Http.HttpVersion.Http11;
+                }
+                else if (ReferenceEquals(value, "HTTP/1.0"))
+                {
+                    _httpVersion = Http.HttpVersion.Http10;
+                }
+                else if (ReferenceEquals(value, "HTTP/2"))
+                {
+                    _httpVersion = Http.HttpVersion.Http2;
+                }
+                else
+                {
+                    HttpVersionSetSlow(value);
+                }
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void HttpVersionSetSlow(string value)
+        {
+            if (value == "HTTP/1.1")
+            {
+                _httpVersion = Http.HttpVersion.Http11;
+            }
+            else if (value == "HTTP/1.0")
+            {
+                _httpVersion = Http.HttpVersion.Http10;
+            }
+            else if (value == "HTTP/2")
+            {
+                _httpVersion = Http.HttpVersion.Http2;
+            }
+            else
+            {
+                _httpVersion = Http.HttpVersion.Unknown;
+            }
+        }
 
         public IHeaderDictionary RequestHeaders { get; set; }
         public Stream RequestBody { get; set; }
@@ -224,6 +289,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         protected FrameResponseHeaders FrameResponseHeaders { get; } = new FrameResponseHeaders();
 
+        public MinDataRate MinRequestBodyDataRate { get; set; }
+
+        public MinDataRate MinResponseDataRate { get; set; }
+
         public void InitializeStreams(IMessageBody messageBody)
         {
             if (_streams == null)
@@ -259,6 +328,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             _requestTargetForm = HttpRequestTarget.Unknown;
             _absoluteRequestTarget = null;
             QueryString = null;
+            _httpVersion = Http.HttpVersion.Unknown;
             StatusCode = StatusCodes.Status200OK;
             ReasonPhrase = null;
 
@@ -286,6 +356,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             _abortedCts = null;
 
             _responseBytesWritten = 0;
+
+            MinRequestBodyDataRate = ServerOptions.Limits.MinRequestBodyDataRate;
+            MinResponseDataRate = ServerOptions.Limits.MinResponseDataRate;
         }
 
         private void CancelRequestAbortedToken()

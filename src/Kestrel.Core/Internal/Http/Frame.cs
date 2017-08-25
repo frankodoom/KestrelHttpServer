@@ -165,6 +165,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 {
                     return "HTTP/1.0";
                 }
+                if (_httpVersion == Http.HttpVersion.Http2)
+                {
+                    return "HTTP/2";
+                }
 
                 return string.Empty;
             }
@@ -181,6 +185,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 else if (ReferenceEquals(value, "HTTP/1.0"))
                 {
                     _httpVersion = Http.HttpVersion.Http10;
+                }
+                else if (ReferenceEquals(value, "HTTP/2"))
+                {
+                    _httpVersion = Http.HttpVersion.Http2;
                 }
                 else
                 {
@@ -199,6 +207,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             else if (value == "HTTP/1.0")
             {
                 _httpVersion = Http.HttpVersion.Http10;
+            }
+            else if (value == "HTTP/2")
+            {
+                _httpVersion = Http.HttpVersion.Http2;
             }
             else
             {
