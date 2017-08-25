@@ -240,6 +240,17 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal
                 _post.Reference();
                 _post.Dispose();
 
+                // We need this walk because we call ReadStop on accepted connections when there's back pressure
+                // Calling ReadStop marks the handle as inactive which means the loop can
+                // end while there are still valid handles around. This makes loop.Dispose throw
+                // with an EBUSY. To avoid that, we walk all of the handles and dispose them.
+                Walk(ptr =>
+                {
+                    var handle = UvMemory.FromIntPtr<UvHandle>(ptr);
+                    // handle can be null because UvMemory.FromIntPtr looks up a weak reference
+                    handle?.Dispose();
+                });
+
                 // Ensure the Dispose operations complete in the event loop.
                 var ran2 = _loop.Run();
 

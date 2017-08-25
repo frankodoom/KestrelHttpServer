@@ -18,7 +18,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
     /// </summary>
     public abstract class ListenerPrimary : Listener
     {
+        // The list of pipes that can be dispatched to (where we've confirmed the _pipeMessage)
         private readonly List<UvPipeHandle> _dispatchPipes = new List<UvPipeHandle>();
+        // The list of pipes we've created but may not be part of _dispatchPipes
+        private readonly List<UvPipeHandle> _createdPipes = new List<UvPipeHandle>();
         private int _dispatchIndex;
         private string _pipeName;
         private byte[] _pipeMessage;
@@ -74,10 +77,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
             }
 
             var dispatchPipe = new UvPipeHandle(Log);
-            dispatchPipe.Init(Thread.Loop, Thread.QueueCloseHandle, true);
+            // Add to the list of created pipes for disposal tracking
+            _createdPipes.Add(dispatchPipe);
 
             try
             {
+                dispatchPipe.Init(Thread.Loop, Thread.QueueCloseHandle, true);
                 pipe.Accept(dispatchPipe);
 
                 // Ensure client sends "Kestrel" before adding pipe to _dispatchPipes.
@@ -180,9 +185,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     var listener = (ListenerPrimary)state;
                     listener.ListenPipe.Dispose();
 
-                    foreach (var dispatchPipe in listener._dispatchPipes)
+                    foreach (var pipe in listener._createdPipes)
                     {
-                        dispatchPipe.Dispose();
+                        pipe.Dispose();
                     }
                 }, this).ConfigureAwait(false);
             }
