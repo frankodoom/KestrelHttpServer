@@ -78,7 +78,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
 
             var dispatchPipe = new UvPipeHandle(Log);
             // Add to the list of created pipes for disposal tracking
-            _createdPipes.Add(dispatchPipe);
+            //_createdPipes.Add(dispatchPipe);
 
             try
             {
@@ -91,6 +91,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     (handle, status2, state) => ((PipeReadContext)state).AllocCallback(handle, status2),
                     (handle, status2, state) => ((PipeReadContext)state).ReadCallback(handle, status2),
                     readContext);
+
+                Console.WriteLine("created dispatchPipe");
             }
             catch (UvException ex)
             {
@@ -185,8 +187,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
                     var listener = (ListenerPrimary)state;
                     listener.ListenPipe.Dispose();
 
-                    foreach (var pipe in listener._createdPipes)
+                    Console.WriteLine("Disposing pipes");
+                    foreach (var pipe in listener._dispatchPipes)
                     {
+                        Console.WriteLine("Disposing a pipe");
                         pipe.Dispose();
                     }
                 }, this).ConfigureAwait(false);

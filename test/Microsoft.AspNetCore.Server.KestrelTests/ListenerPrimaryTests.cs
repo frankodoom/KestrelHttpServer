@@ -277,6 +277,79 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
             Assert.Contains("Bad data", errorMessage.Exception.ToString());
         }
 
+        [Fact]
+        public async Task CreatedPipesAreAlwaysDisposed()
+        {
+            var libuv = new Libuv();
+            var primaryTrace = new TestKestrelTrace();
+            var serviceContextPrimary = new TestServiceContext
+            {
+                Log = primaryTrace,
+                FrameFactory = context =>
+                {
+                    return new Frame<DefaultHttpContext>(new TestApplication(c =>
+                    {
+                        return Task.FromResult(0);
+                    }), context);
+                }
+            };
+
+            using (var kestrelEngine = new KestrelEngine(libuv, serviceContextPrimary))
+            {
+                var address = ServerAddress.FromUrl("http://127.0.0.1:0/");
+                var pipeName = (libuv.IsWindows ? @"\\.\pipe\kestrel_" : "/tmp/kestrel_") + Guid.NewGuid().ToString("n");
+                var pipeMessage = Guid.NewGuid().ToByteArray();
+
+                // Start primary listener
+                var kestrelThreadPrimary = new KestrelThread(kestrelEngine);
+                await kestrelThreadPrimary.StartAsync();
+                var listenerPrimary = new TcpListenerPrimary(serviceContextPrimary);
+                await listenerPrimary.StartAsync(pipeName, pipeMessage, address, kestrelThreadPrimary);
+
+                // Connect to the primary listener but don't send anything
+                var kestrelThreadSecondary = new KestrelThread(kestrelEngine);
+                var connectedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var pipe = new UvPipeHandle(new TestKestrelTrace());
+                await kestrelThreadSecondary.StartAsync();
+                await kestrelThreadSecondary.PostAsync(state =>
+                {
+                    pipe.Init(kestrelThreadSecondary.Loop, kestrelThreadSecondary.QueueCloseHandle, true);
+                    
+                    var connectReq = new UvConnectRequest(new TestKestrelTrace());
+                    connectReq.Init(kestrelThreadSecondary.Loop);
+                    connectReq.Connect(pipe, pipeName, (connect2, status, error, state2) =>
+                    {
+                        var writeReq = new UvWriteReq(new TestKestrelTrace());
+                        writeReq.Init(kestrelThreadSecondary.Loop);
+                        writeReq.Write(
+                            pipe,
+                            new ArraySegment<ArraySegment<byte>>(new [] { new ArraySegment<byte>(new byte[] { 42 }) }),
+                            (req, status2, ex, state3) =>
+                            {
+                                req.Dispose();
+                            },
+                            null);
+
+                        connect2.Dispose();
+                        connectedTcs.SetResult(null);
+                    }, connectedTcs);
+                }, null);
+
+                // Wait until pipe connection is established
+                await kestrelThreadPrimary.PostAsync(_ => { }, null);
+                await connectedTcs.Task;
+
+                Console.WriteLine(pipe.IsClosed);
+
+                await listenerPrimary.DisposeAsync();
+                kestrelThreadPrimary.Stop(TimeSpan.FromSeconds(1));
+
+                kestrelThreadSecondary.Stop(TimeSpan.FromSeconds(1));
+
+                pipe.Dispose();
+            }
+        }
+
         private class TestApplication : IHttpApplication<DefaultHttpContext>
         {
             private readonly Func<DefaultHttpContext, Task> _app;
